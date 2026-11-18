@@ -19,7 +19,7 @@ mcp = FastMCP("amazon-listings", host="0.0.0.0", stateless_http=True)
 
 async def _request(client: httpx.AsyncClient, **params: str) -> dict:
     resp = await client.get(
-        RAINFOREST_URL, params={"api_key": os.environ["RAINFOREST_API_KEY"], **params}
+        RAINFOREST_URL, params={"api_key": os.environ["RAINFOREST_API_KEY"].strip(), **params}
     )
     resp.raise_for_status()
     return resp.json()

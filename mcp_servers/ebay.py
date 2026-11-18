@@ -23,13 +23,15 @@ _token: dict[str, float | str] = {"value": "", "expires": 0.0}
 
 
 def _host() -> str:
-    return HOSTS[os.environ.get("EBAY_ENV", "production")]
+    return HOSTS[os.environ.get("EBAY_ENV", "production").strip()]
 
 
 async def _get_token(client: httpx.AsyncClient) -> str:
     if _token["value"] and time.time() < float(_token["expires"]) - 60:
         return str(_token["value"])
-    creds = f"{os.environ['EBAY_CLIENT_ID']}:{os.environ['EBAY_CLIENT_SECRET']}"
+    # Strip stray whitespace/newlines that easily sneak into pasted secrets.
+    client_id = os.environ["EBAY_CLIENT_ID"].strip()
+    creds = f"{client_id}:{os.environ['EBAY_CLIENT_SECRET'].strip()}"
     resp = await client.post(
         f"{_host()}/identity/v1/oauth2/token",
         headers={
@@ -38,7 +40,12 @@ async def _get_token(client: httpx.AsyncClient) -> str:
         },
         data={"grant_type": "client_credentials", "scope": SCOPE},
     )
-    resp.raise_for_status()
+    if resp.status_code != 200:
+        # eBay's error body says why (e.g. invalid_client); never echo the secret itself.
+        kind = "sandbox" if "-SBX-" in client_id else "production" if "-PRD-" in client_id else "unknown"
+        raise RuntimeError(
+            f"eBay login failed ({resp.status_code}) on {_host()} with a {kind} client ID "
+            f"ending '{client_id[-4:]}': {resp.text[:300]}")
     body = resp.json()
     _token["value"] = body["access_token"]
     _token["expires"] = time.time() + int(body.get("expires_in", 7200))

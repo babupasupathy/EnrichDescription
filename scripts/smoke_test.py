@@ -18,18 +18,25 @@ async def main(base: str) -> None:
     if not os.environ.get("MCP_AUTH_TOKEN"):
         sys.exit("Set MCP_AUTH_TOKEN first (see usage above).")
 
-    ebay = await call_tool(f"{base}/ebay/mcp", "search_listings",
-                           {"query": "floral wrap dress", "category_id": "63861", "limit": 3})
-    print(f"eBay: {len(ebay)} listings")
-    for i in ebay:
-        print(f"  ${i['price']:>7.2f}  {i['title'][:70]}")
+    try:
+        ebay = await call_tool(f"{base}/ebay/mcp", "search_listings",
+                               {"query": "floral wrap dress", "category_id": "63861", "limit": 3})
+        print(f"eBay OK: {len(ebay)} listings")
+        for i in ebay:
+            print(f"  ${i['price']:>7.2f}  {i['title'][:70]}")
+    except Exception as e:
+        print(f"eBay FAILED: {e}")
 
-    amazon = await call_tool(f"{base}/amazon/mcp", "bestseller_listings",
-                             {"bestsellers_url": "https://www.amazon.com/gp/bestsellers/fashion/1045024",
-                              "limit": 3, "with_details": False})
-    print(f"Amazon: {len(amazon)} bestsellers")
-    for i in amazon:
-        print(f"  #{i['rank']}  {i['rating']}★  {i['title'][:70]}")
+    try:
+        amazon = await call_tool(
+            f"{base}/amazon/mcp", "bestseller_listings",
+            {"bestsellers_url": "https://www.amazon.com/gp/bestsellers/fashion/1045024",
+             "limit": 3, "with_details": False})
+        print(f"Amazon OK: {len(amazon)} bestsellers")
+        for i in amazon:
+            print(f"  #{i['rank']}  {i['rating']}★  {i['title'][:70]}")
+    except Exception as e:
+        print(f"Amazon FAILED: {e}")
 
 
 if __name__ == "__main__":
