@@ -40,8 +40,27 @@ class State(TypedDict, total=False):
     results: dict[str, dict]
 
 
-def structured(tier: str, schema: type, temperature: float = 0.0):
-    return get_model(tier, temperature).with_structured_output(schema, method="function_calling")
+STRUCTURED_ATTEMPTS = 3
+
+
+class _Structured:
+    """Structured-output model that retries when the model answers in prose (parsed as None)."""
+
+    def __init__(self, tier: str, schema: type, temperature: float):
+        self.tier, self.schema = tier, schema
+        self.runnable = get_model(tier, temperature).with_structured_output(
+            schema, method="function_calling")
+
+    async def ainvoke(self, prompt):
+        for _ in range(STRUCTURED_ATTEMPTS):
+            if (out := await self.runnable.ainvoke(prompt)) is not None:
+                return out
+        raise RuntimeError(f"The {self.tier} model returned no {self.schema.__name__} after "
+                           f"{STRUCTURED_ATTEMPTS} tries.")
+
+
+def structured(tier: str, schema: type, temperature: float = 0.0) -> _Structured:
+    return _Structured(tier, schema, temperature)
 
 
 # --- F2: policy and category -------------------------------------------------------------
@@ -105,9 +124,14 @@ async def filter_listings(state: State) -> dict:
         if not items:
             return items
         lines = "\n".join(f"{i['id']} | {i['title']}" for i in items)
-        keep: RelevantIds = await model.ainvoke(prompts.FILTER.format(
-            subcategory=state["subcategory"], attributes=state["attributes"], listings=lines))
-        kept = [i for i in items if i["id"] in set(keep.keep_ids)]
+        try:
+            keep: RelevantIds = await model.ainvoke(prompts.FILTER.format(
+                subcategory=state["subcategory"], attributes=state["attributes"], listings=lines))
+        except Exception as e:  # The filter is an optimisation; never fail the run over it.
+            warnings.append(f"{m}: couldn't filter competitor listings ({e}); using all of them.")
+            return items
+        ids = set(keep.keep_ids)
+        kept = [i for i in items if i["id"] in ids]
         if len(kept) < MIN_RELEVANT:
             warnings.append(f"{m}: only {len(kept)} closely matching listings found.")
         return kept

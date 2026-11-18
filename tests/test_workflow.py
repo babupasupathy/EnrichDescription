@@ -24,7 +24,10 @@ class FakeModel:
         return self
 
     async def ainvoke(self, _prompt):
-        return self.responses[self.schema]
+        out = self.responses[self.schema]
+        if isinstance(out, Exception):
+            raise out
+        return out
 
 
 @pytest.fixture
@@ -90,6 +93,46 @@ async def test_unsupported_category_message(fake):
     out = await workflow.build_graph().ainvoke(
         {"description": "running shoes", "marketplaces": ["ebay"]}, cfg())
     assert out["status"] == "unsupported" and out["message"] == "Men's shoes not supported yet"
+
+
+@pytest.mark.anyio
+async def test_filter_failure_keeps_all_listings(fake):
+    fake[RelevantIds] = RuntimeError("model returned nothing")
+    fake[Attributes] = Attributes(values={"size": "M", "fit": "slim", "fabric": "silk"})
+    out = await workflow.build_graph().ainvoke(
+        {"description": "x", "marketplaces": ["ebay"]}, cfg())
+    assert out["results"]["ebay"]["competitor_count"] == 3
+    assert any("couldn't filter" in w for w in out["warnings"])
+
+
+class _Answers:
+    """Stands in for model.with_structured_output(...): returns queued answers in order."""
+
+    def __init__(self, answers):
+        self.answers, self.calls = list(answers), 0
+
+    def with_structured_output(self, *_a, **_k):
+        return self
+
+    async def ainvoke(self, _prompt):
+        self.calls += 1
+        return self.answers.pop(0)
+
+
+@pytest.mark.anyio
+async def test_structured_retries_when_model_answers_in_prose(monkeypatch):
+    fake_model = _Answers([None, RelevantIds(keep_ids=["7"])])
+    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature: fake_model)
+    out = await workflow.structured("mid", RelevantIds).ainvoke("prompt")
+    assert out.keep_ids == ["7"] and fake_model.calls == 2
+
+
+@pytest.mark.anyio
+async def test_structured_gives_up_with_clear_error(monkeypatch):
+    fake_model = _Answers([None] * workflow.STRUCTURED_ATTEMPTS)
+    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature: fake_model)
+    with pytest.raises(RuntimeError, match="mid model returned no RelevantIds"):
+        await workflow.structured("mid", RelevantIds).ainvoke("prompt")
 
 
 @pytest.fixture
