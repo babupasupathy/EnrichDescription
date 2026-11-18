@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import threading
 import time
 import uuid
 
@@ -33,6 +34,20 @@ def graph():
     return build_graph()
 
 
+@st.cache_resource
+def event_loop() -> asyncio.AbstractEventLoop:
+    # One long-lived loop for the whole app. asyncio.run() per click would close its loop
+    # afterwards, but langchain-openai shares one pooled HTTP client across calls, so the
+    # next run would reuse connections tied to the closed loop ("Event loop is closed").
+    loop = asyncio.new_event_loop()
+    threading.Thread(target=loop.run_forever, daemon=True, name="enrich-loop").start()
+    return loop
+
+
+def run_async(coro):
+    return asyncio.run_coroutine_threadsafe(coro, event_loop()).result()
+
+
 def ss():
     return st.session_state
 
@@ -42,7 +57,7 @@ def run_graph(payload, resume: bool = False):
     config = {"configurable": {"thread_id": ss().thread_id}, "run_id": run_id,
               "run_name": "enrich-listing"}
     arg = Command(resume=payload) if resume else payload
-    ss().result = asyncio.run(graph().ainvoke(arg, config))
+    ss().result = run_async(graph().ainvoke(arg, config))
     ss().run_id = str(run_id)
 
 
