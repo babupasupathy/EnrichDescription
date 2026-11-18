@@ -69,6 +69,10 @@ class State(TypedDict, total=False):
 STRUCTURED_ATTEMPTS = 3
 
 
+class ModelUnavailable(RuntimeError):
+    """Shown to the user as-is (it names the model, never a key)."""
+
+
 class _Structured:
     """Structured-output model that retries when the model answers in prose (parsed as None)."""
 
@@ -91,7 +95,13 @@ class _Structured:
                 # still caught by the retry loop.
                 logging.warning("%s model: %s; retrying without require_parameters", self.tier, e)
                 self.runnable = self._build(strict=False)
-                out = await self.runnable.ainvoke(prompt)
+                try:
+                    out = await self.runnable.ainvoke(prompt)
+                except NotFoundError as e2:
+                    raise ModelUnavailable(
+                        f"No OpenRouter host can run the {self.tier} model "
+                        f"({get_model(self.tier).model_name}) for this request: {e2.message}"
+                    ) from e2
             if out is not None:
                 return out
         raise RuntimeError(f"The {self.tier} model returned no {self.schema.__name__} after "

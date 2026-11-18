@@ -22,7 +22,7 @@ from langgraph.types import Command  # noqa: E402
 
 from enrich import rules  # noqa: E402
 from enrich.config import get_settings  # noqa: E402
-from enrich.workflow import build_graph  # noqa: E402
+from enrich.workflow import ModelUnavailable, build_graph  # noqa: E402
 
 RUNS_PER_HOUR = 10
 REASON_TAGS = ["Wrong keywords", "Wrong tone", "Missing details", "Too long"]
@@ -69,6 +69,9 @@ def run_graph(payload, resume: bool = False):
         # Streamlit Cloud redacts exception text; the API's own message holds no secrets
         # and says what to fix (credits, key, no available host).
         st.error(f"The model provider returned an error ({e.status_code}): {e.message}")
+        st.stop()
+    except ModelUnavailable as e:
+        st.error(str(e))
         st.stop()
     ss().run_id = str(run_id)
 
