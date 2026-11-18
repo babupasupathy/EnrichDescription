@@ -55,7 +55,7 @@ def anyio_backend():
 def test_mcp_requires_bearer_token(monkeypatch):
     monkeypatch.setenv("MCP_AUTH_TOKEN", "s3cret")
     with TestClient(app) as client:
-        assert client.get("/healthz").text == "ok"
+        assert client.get("/health").text == "ok"
         assert client.post("/ebay/mcp", json={}).status_code == 401
         ok = client.post("/ebay/mcp", headers={"Authorization": "Bearer s3cret",
                                                "Accept": "application/json, text/event-stream"},

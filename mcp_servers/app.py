@@ -2,7 +2,7 @@
 
   /ebay/mcp    eBay Browse API tools
   /amazon/mcp  Rainforest (Amazon) tools
-  /healthz     unauthenticated health check
+  /health     unauthenticated health check
 
 Every MCP request must carry `Authorization: Bearer $MCP_AUTH_TOKEN` (PRD: MCP auth).
 Run locally:  uv run uvicorn mcp_servers.app:app --port 8080
@@ -26,7 +26,7 @@ SERVERS = {"ebay": ebay.mcp, "amazon": amazon.mcp}
 class BearerAuth(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         expected = os.environ.get("MCP_AUTH_TOKEN", "")
-        if request.url.path == "/healthz":
+        if request.url.path == "/health":
             return await call_next(request)
         if not expected:
             return JSONResponse({"error": "server misconfigured: MCP_AUTH_TOKEN not set"}, 500)
@@ -44,13 +44,13 @@ async def lifespan(_app: Starlette):
         yield
 
 
-async def healthz(_request: Request) -> PlainTextResponse:
+async def health(_request: Request) -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
 app = Starlette(
     routes=[
-        Route("/healthz", healthz),
+        Route("/health", health),
         *(Mount(f"/{name}", app=server.streamable_http_app()) for name, server in SERVERS.items()),
     ],
     lifespan=lifespan,

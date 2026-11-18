@@ -63,7 +63,7 @@ gcloud run deploy enrich-mcp --source . --region us-central1 --allow-unauthentic
 ```
 
 `--allow-unauthenticated` only opens the network path; every MCP request still needs the
-bearer token. Check it with `curl https://<service-url>/healthz`.
+bearer token. Check it with `curl https://<service-url>/health`.
 
 **App → Streamlit Community Cloud.** Point the app at `streamlit_app.py` on `main`, and
 paste the values from [.streamlit/secrets.toml.example](.streamlit/secrets.toml.example)
