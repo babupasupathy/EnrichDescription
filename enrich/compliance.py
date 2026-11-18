@@ -9,7 +9,7 @@ from collections import Counter
 from dataclasses import dataclass
 
 # Conservative limits; M2 replaces these with values retrieved from the rule docs.
-TITLE_MAX = {"amazon": 200, "ebay": 80}
+TITLE_MAX = {"amazon": 75, "ebay": 80}  # Amazon non-media titles; see rules/amazon.md
 BULLETS_MAX = {"amazon": 5, "ebay": 0}  # eBay has no bullet field; bullets go in the description
 BANNED_TITLE_CHARS = re.compile(r"[!$?_{}^¬¦~#<>*]")
 NGRAM_N = 8

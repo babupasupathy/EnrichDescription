@@ -15,7 +15,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from enrich import prompts
+from enrich import prompts, rules
 from enrich.categories import CATEGORIES
 from enrich.compliance import check_listing
 from enrich.llm import get_model
@@ -23,6 +23,30 @@ from enrich.mcp_client import fetch_listings
 from enrich.schemas import Attributes, Classification, Listing, RelevantIds
 
 MIN_RELEVANT = 5
+RULES_FOR_CLASSIFY = 3
+RULES_FOR_GENERATE = 5
+
+
+async def retrieve_rules(marketplace: str, query: str, k: int) -> list[rules.Rule]:
+    """Marketplace rules from the RAG index; Chroma is synchronous, so run it off the loop."""
+    return await asyncio.to_thread(rules.retrieve, marketplace, query, k)
+
+
+async def _rules_for(markets: list[str], query: str, k: int, warnings: list[str]
+                     ) -> dict[str, list[rules.Rule]]:
+    found = await asyncio.gather(*(retrieve_rules(m, query, k) for m in markets),
+                                 return_exceptions=True)
+    out = {}
+    for m, r in zip(markets, found):
+        if isinstance(r, Exception):  # Rules add context; never fail the run over them.
+            warnings.append(f"{m}: couldn't load marketplace rules ({r}); using built-in rules only.")
+            r = []
+        out[m] = r
+    return out
+
+
+def _rules_text(found: list[rules.Rule]) -> str:
+    return "\n".join(f"- {r.as_prompt()}" for r in found) or "(none)"
 
 
 class State(TypedDict, total=False):
@@ -65,19 +89,23 @@ def structured(tier: str, schema: type, temperature: float = 0.0) -> _Structured
 
 # --- F2: policy and category -------------------------------------------------------------
 async def classify(state: State) -> dict:
+    warnings = list(state.get("warnings", []))
+    found = await _rules_for(state["marketplaces"], state["description"], RULES_FOR_CLASSIFY,
+                             warnings)
+    policy = "\n".join(f"{m.title()}:\n{_rules_text(r)}" for m, r in found.items())
     c: Classification = await structured("cheap", Classification).ainvoke(
-        prompts.CLASSIFY.format(marketplaces=state["marketplaces"],
+        prompts.CLASSIFY.format(marketplaces=state["marketplaces"], policy=policy,
                                 description=state["description"]))
     blocked = {m: f"This category is prohibited on {m.title()}: {c.prohibited_reason}"
                for m in c.prohibited_on if m in state["marketplaces"]}
     remaining = [m for m in state["marketplaces"] if m not in blocked]
     if not remaining:
-        return {"status": "prohibited", "blocked": blocked,
+        return {"status": "prohibited", "blocked": blocked, "warnings": warnings,
                 "message": "This product is prohibited on every marketplace you chose."}
     if c.category == "other":
-        return {"status": "unsupported", "blocked": blocked,
+        return {"status": "unsupported", "blocked": blocked, "warnings": warnings,
                 "message": f"{c.category_label} not supported yet"}
-    return {"status": "ok", "blocked": blocked, "marketplaces": remaining,
+    return {"status": "ok", "blocked": blocked, "marketplaces": remaining, "warnings": warnings,
             "category": c.category, "subcategory": c.subcategory}
 
 
@@ -148,13 +176,15 @@ def _competitor_text(items: list[dict]) -> str:
     return json.dumps([{k: i.get(k) for k in keep if i.get(k)} for i in items], indent=1)[:30000]
 
 
-async def generate_one(state: State, marketplace: str) -> dict[str, Any]:
+async def generate_one(state: State, marketplace: str, found: list[rules.Rule]
+                       ) -> dict[str, Any]:
     items = state["competitors"].get(marketplace, [])
     model = structured("top", Listing, temperature=0.4)
     prompt = prompts.GENERATE.format(
         marketplace=marketplace.title(), description=state["description"],
         attributes=state["attributes"], competitors=_competitor_text(items) if items else "(none)",
-        marketplace_rules=prompts.MARKETPLACE_RULES[marketplace])
+        marketplace_rules=prompts.MARKETPLACE_RULES[marketplace],
+        policy=_rules_text(found))
     listing: Listing = await model.ainvoke(prompt)
 
     sources = [f"{i.get('title', '')} {i.get('description', '')}" for i in items]
@@ -167,12 +197,17 @@ async def generate_one(state: State, marketplace: str) -> dict[str, Any]:
                                sources)
     return {"listing": listing.model_dump(),
             "issues": [i.__dict__ for i in issues],
+            "rules_used": [{"heading": r.heading, "source": r.source} for r in found],
             "competitor_count": len(items)}
 
 
 async def generate(state: State) -> dict:
-    outs = await asyncio.gather(*(generate_one(state, m) for m in state["marketplaces"]))
-    return {"results": dict(zip(state["marketplaces"], outs))}
+    markets, warnings = state["marketplaces"], list(state.get("warnings", []))
+    query = (f"{state['subcategory']} listing: title, bullets, description, keywords, "
+             f"brand names and claims")
+    found = await _rules_for(markets, query, RULES_FOR_GENERATE, warnings)
+    outs = await asyncio.gather(*(generate_one(state, m, found[m]) for m in markets))
+    return {"results": dict(zip(markets, outs)), "warnings": warnings}
 
 
 def build_graph(checkpointer=None):

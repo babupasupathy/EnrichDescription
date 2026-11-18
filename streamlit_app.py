@@ -19,6 +19,7 @@ except FileNotFoundError:
 
 from langgraph.types import Command  # noqa: E402
 
+from enrich import rules  # noqa: E402
 from enrich.config import get_settings  # noqa: E402
 from enrich.workflow import build_graph  # noqa: E402
 
@@ -29,8 +30,12 @@ st.set_page_config(page_title="EnrichDescription", page_icon="🏷️", layout="
 settings = get_settings()
 
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading marketplace rules...")
 def graph():
+    try:
+        rules.get_index()  # Embed the rules once at startup, not on the first user's run.
+    except Exception:
+        pass  # The workflow warns and carries on without them.
     return build_graph()
 
 
@@ -162,6 +167,11 @@ for tab, (market, out) in zip(tabs, results.items()):
             st.markdown("**Top keywords:** " + ", ".join(p["top_keywords"]))
             st.markdown("**Title structure:** " + p["title_structure"])
             st.markdown("**What buyers mention:** " + "; ".join(p["buyer_review_themes"]))
+
+        if out.get("rules_used"):
+            with st.expander(f"Marketplace rules applied ({len(out['rules_used'])})"):
+                for r in out["rules_used"]:
+                    st.markdown(f"- [{r['heading']}]({r['source']})")
 
         with st.expander("Edit this listing"):
             edited = st.text_area("Your final version", key=f"edit-{market}", height=220,

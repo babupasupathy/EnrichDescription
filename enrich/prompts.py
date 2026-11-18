@@ -5,10 +5,13 @@ CLASSIFY = """You classify a product for US marketplace listing.
 1. Policy: list each marketplace in {marketplaces} where this product is PROHIBITED
    (weapons, adult/sexual content, violence, drugs or paraphernalia, counterfeit or replica
    goods, recalled or hazardous items). Give a short reason naming the policy area.
-   Ordinary dresses and phone cases are allowed.
+   Ordinary dresses and phone cases are allowed. Use the marketplace policy excerpts below.
 2. Category: womens_dresses, cell_phone_cases, or other. For other, give a short
    human-readable category_label such as "Men's shoes".
 3. Subcategory: a short phrase, e.g. "floral maxi dress" or "iPhone 16 Pro clear case".
+
+Marketplace policy excerpts (retrieved):
+{policy}
 
 Product description:
 {description}"""
@@ -52,12 +55,14 @@ Instructions:
   health claims such as "antimicrobial" or "FDA approved").
 - Use brand names only as compatibility ("for iPhone 16"), never as if we were that brand.
 - {marketplace_rules}
+- Follow these {marketplace} policy excerpts (retrieved from our rules summaries):
+{policy}
 
 Return: title, bullets, description, keywords (search terms), and the patterns you used."""
 
 MARKETPLACE_RULES = {
     "amazon": (
-        "Amazon: title at most 200 characters (aim for 80-150), no word more than twice, "
+        "Amazon: title at most 75 characters including spaces, no word more than twice, "
         "no special characters like ! $ ? _ { } ^ ~ # < > *. Exactly 5 bullets, each under "
         "250 characters, starting with a short capitalized benefit. Description 150-300 words."
     ),

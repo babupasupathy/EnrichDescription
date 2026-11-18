@@ -27,6 +27,7 @@ Sellers rate each listing 1–5 stars; ratings and edits are logged to LangSmith
 ```
 streamlit_app.py      UI (input, missing-attribute form, results, star rating)
 enrich/               workflow, prompts, schemas, model tiers, rules checks, MCP client
+rules/                marketplace policy summaries in our own words, one file per marketplace (RAG source)
 mcp_servers/          eBay + Amazon MCP servers in one ASGI app (deployed to Cloud Run)
 tests/                unit tests and workflow paths with fake models (no keys needed)
 docs/                 PRD and diagrams
@@ -72,7 +73,12 @@ into *App settings → Secrets*, using your Cloud Run URL.
 ## Status
 
 M1 scaffold: the workflow, both MCP servers, the UI and the rules checks are in place.
-Next: rules RAG in Chroma (M2), then the LangSmith golden set and model comparison (M4).
+M2 rules RAG: `rules/*.md` summarizes each marketplace's listing policies in our own words with
+source links (not copies of the policies). They're embedded into an in-memory Chroma index at
+startup (local MiniLM embeddings, no API key) and retrieved per marketplace for the prohibited-item
+check and for writing the listing; the UI lists the rules applied. To add or update a rule, edit
+the Markdown file: one `## ` section per rule, with a `Source:` line.
+Next: the LangSmith golden set and model comparison (M4).
 See the milestones in the [PRD](docs/PRD.md#milestones).
 
 ## License

@@ -6,6 +6,7 @@ import pytest
 from langgraph.types import Command
 
 from enrich import workflow
+from enrich.rules import Rule
 from enrich.schemas import Attributes, Classification, Listing, Patterns, RelevantIds
 
 LISTING = Listing(title="Floral Wrap Midi Dress for Women", bullets=["Soft rayon"] * 5,
@@ -47,6 +48,12 @@ def fake(monkeypatch):
                 for i in range(1, 4)]
 
     monkeypatch.setattr(workflow, "fetch_listings", fake_fetch)
+
+    async def fake_rules(marketplace, query, k):
+        return [Rule(id=f"{marketplace}-01", marketplace=marketplace, heading="Title length",
+                     source=f"https://{marketplace}.example/rules", text="Keep titles short.")]
+
+    monkeypatch.setattr(workflow, "retrieve_rules", fake_rules)
     return responses
 
 
@@ -66,6 +73,8 @@ async def test_pauses_for_missing_size_then_generates(fake):
     assert set(final["results"]) == {"amazon", "ebay"}
     assert final["results"]["amazon"]["competitor_count"] == 2
     assert any("only 2 closely matching" in w for w in final["warnings"])
+    assert final["results"]["ebay"]["rules_used"] == [
+        {"heading": "Title length", "source": "https://ebay.example/rules"}]
 
 
 @pytest.mark.anyio
@@ -133,6 +142,19 @@ async def test_structured_gives_up_with_clear_error(monkeypatch):
     monkeypatch.setattr(workflow, "get_model", lambda tier, temperature: fake_model)
     with pytest.raises(RuntimeError, match="mid model returned no RelevantIds"):
         await workflow.structured("mid", RelevantIds).ainvoke("prompt")
+
+
+@pytest.mark.anyio
+async def test_rules_failure_warns_and_continues(fake, monkeypatch):
+    async def broken(marketplace, query, k):
+        raise RuntimeError("index unavailable")
+
+    monkeypatch.setattr(workflow, "retrieve_rules", broken)
+    fake[Attributes] = Attributes(values={"size": "M", "fit": "slim", "fabric": "silk"})
+    out = await workflow.build_graph().ainvoke(
+        {"description": "x", "marketplaces": ["amazon"]}, cfg())
+    assert out["results"]["amazon"]["rules_used"] == []
+    assert any("couldn't load marketplace rules" in w for w in out["warnings"])
 
 
 @pytest.fixture
