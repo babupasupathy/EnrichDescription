@@ -1,0 +1,8 @@
+.git
+.venv
+.env
+.streamlit
+__pycache__
+tests
+docs
+evals

@@ -1,12 +1,33 @@
 [project]
-name = "blank-app-template"
+name = "enrich-description"
 version = "0.1.0"
-description = "A simple Streamlit app template."
+description = "Marketplace-ready listings for US small sellers from one raw product description."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "httpx>=0.28.1",
+    "langchain-core>=1.8.2",
+    "langchain-openai>=1.8.1",
+    "langgraph>=1.2.22",
+    "langsmith>=0.15.0",
+    "mcp[cli]>=1.30.0",
+    "pydantic>=2",
+    "pydantic-settings>=2.16.3",
+    "python-dotenv>=1.2.4",
     "streamlit>=1.61.1",
+    "uvicorn>=0.46.0",
 ]
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+dev = [
+    "anyio>=4.14.2",
+    "pytest>=9.2.0",
+    "respx>=0.23.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
