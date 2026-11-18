@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 
+import openai
 import streamlit as st
 
 # Streamlit Community Cloud keeps secrets in st.secrets; expose them as env vars for
@@ -62,7 +63,13 @@ def run_graph(payload, resume: bool = False):
     config = {"configurable": {"thread_id": ss().thread_id}, "run_id": run_id,
               "run_name": "enrich-listing"}
     arg = Command(resume=payload) if resume else payload
-    ss().result = run_async(graph().ainvoke(arg, config))
+    try:
+        ss().result = run_async(graph().ainvoke(arg, config))
+    except openai.APIStatusError as e:
+        # Streamlit Cloud redacts exception text; the API's own message holds no secrets
+        # and says what to fix (credits, key, no available host).
+        st.error(f"The model provider returned an error ({e.status_code}): {e.message}")
+        st.stop()
     ss().run_id = str(run_id)
 
 

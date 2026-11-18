@@ -125,13 +125,16 @@ class _Answers:
 
     async def ainvoke(self, _prompt):
         self.calls += 1
-        return self.answers.pop(0)
+        out = self.answers.pop(0)
+        if isinstance(out, Exception):
+            raise out
+        return out
 
 
 @pytest.mark.anyio
 async def test_structured_retries_when_model_answers_in_prose(monkeypatch):
     fake_model = _Answers([None, RelevantIds(keep_ids=["7"])])
-    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature: fake_model)
+    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature, strict=True: fake_model)
     out = await workflow.structured("mid", RelevantIds).ainvoke("prompt")
     assert out.keep_ids == ["7"] and fake_model.calls == 2
 
@@ -139,9 +142,23 @@ async def test_structured_retries_when_model_answers_in_prose(monkeypatch):
 @pytest.mark.anyio
 async def test_structured_gives_up_with_clear_error(monkeypatch):
     fake_model = _Answers([None] * workflow.STRUCTURED_ATTEMPTS)
-    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature: fake_model)
+    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature, strict=True: fake_model)
     with pytest.raises(RuntimeError, match="mid model returned no RelevantIds"):
         await workflow.structured("mid", RelevantIds).ainvoke("prompt")
+
+
+@pytest.mark.anyio
+async def test_structured_relaxes_routing_when_no_host_qualifies(monkeypatch):
+    import httpx
+    from openai import NotFoundError
+
+    resp = httpx.Response(404, request=httpx.Request("POST", "https://x"))
+    strict_model = _Answers([NotFoundError("No endpoints found", response=resp, body=None)])
+    relaxed_model = _Answers([RelevantIds(keep_ids=["7"])])
+    monkeypatch.setattr(workflow, "get_model", lambda tier, temperature, strict=True:
+                        strict_model if strict else relaxed_model)
+    out = await workflow.structured("cheap", RelevantIds).ainvoke("prompt")
+    assert out.keep_ids == ["7"] and relaxed_model.calls == 1
 
 
 @pytest.mark.anyio

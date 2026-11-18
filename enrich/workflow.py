@@ -9,11 +9,13 @@ Run with a thread id; if the result contains "__interrupt__", resume with
 
 import asyncio
 import json
+import logging
 from typing import Any, TypedDict
 
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
+from openai import NotFoundError
 
 from enrich import prompts, rules
 from enrich.categories import CATEGORIES
@@ -72,12 +74,25 @@ class _Structured:
 
     def __init__(self, tier: str, schema: type, temperature: float):
         self.tier, self.schema = tier, schema
-        self.runnable = get_model(tier, temperature).with_structured_output(
-            schema, method="function_calling")
+        self.temperature = temperature
+        self.runnable = self._build(strict=True)
+
+    def _build(self, strict: bool):
+        return get_model(self.tier, self.temperature, strict=strict).with_structured_output(
+            self.schema, method="function_calling")
 
     async def ainvoke(self, prompt):
         for _ in range(STRUCTURED_ATTEMPTS):
-            if (out := await self.runnable.ainvoke(prompt)) is not None:
+            try:
+                out = await self.runnable.ainvoke(prompt)
+            except NotFoundError as e:
+                # OpenRouter: no host honours every parameter (often narrowed further by the
+                # account's privacy settings). Retry with normal routing; empty answers are
+                # still caught by the retry loop.
+                logging.warning("%s model: %s; retrying without require_parameters", self.tier, e)
+                self.runnable = self._build(strict=False)
+                out = await self.runnable.ainvoke(prompt)
+            if out is not None:
                 return out
         raise RuntimeError(f"The {self.tier} model returned no {self.schema.__name__} after "
                            f"{STRUCTURED_ATTEMPTS} tries.")
