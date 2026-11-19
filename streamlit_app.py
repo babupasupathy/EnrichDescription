@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import queue
 import threading
 import time
 import uuid
@@ -25,6 +26,22 @@ from enrich.config import get_settings  # noqa: E402
 from enrich.workflow import ModelUnavailable, build_graph  # noqa: E402
 
 RUNS_PER_HOUR = 10
+RUN_TIMEOUT_S = 300
+# What runs after each step finishes (shown while waiting), and the line left once it's done.
+NEXT_STEP = {
+    None: "Checking category and marketplace rules",
+    "classify": "Reading product details",
+    "extract_attributes": "Fetching top listings (Amazon takes 1-2 minutes)",
+    "fetch_listings": "Filtering to relevant listings",
+    "filter_listings": "Writing listings and checking marketplace rules",
+}
+DONE = {
+    "classify": "Checked category and marketplace rules",
+    "extract_attributes": "Read product details",
+    "fetch_listings": "Fetched top listings",
+    "filter_listings": "Filtered to relevant listings",
+    "generate": "Wrote and checked listings",
+}
 REASON_TAGS = ["Wrong keywords", "Wrong tone", "Missing details", "Too long"]
 
 st.set_page_config(page_title="EnrichDescription", page_icon="🏷️", layout="centered")
@@ -50,12 +67,57 @@ def event_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
-def run_async(coro):
-    return asyncio.run_coroutine_threadsafe(coro, event_loop()).result()
-
-
 def ss():
     return st.session_state
+
+
+async def stream_graph(arg, config, events: queue.Queue) -> dict:
+    """Run the graph, sending step and note events to the UI thread; returns what ainvoke would."""
+    final, interrupts = {}, ()
+    async for mode, chunk in graph().astream(arg, config,
+                                             stream_mode=["updates", "custom", "values"]):
+        if mode == "values":
+            final = chunk
+        elif mode == "custom":
+            events.put(("note", chunk))
+        else:
+            for node in chunk:
+                if node == "__interrupt__":
+                    interrupts = chunk[node]
+                else:
+                    events.put(("done", node))
+    return {**final, "__interrupt__": list(interrupts)} if interrupts else final
+
+
+def run_with_progress(arg, config, first_step: str):
+    events: queue.Queue = queue.Queue()
+    future = asyncio.run_coroutine_threadsafe(
+        asyncio.wait_for(stream_graph(arg, config, events), RUN_TIMEOUT_S), event_loop())
+    start, step, lines = time.time(), first_step, []
+    with st.status(step, expanded=True) as status:
+        while True:
+            try:
+                kind, value = events.get(timeout=0.5)
+            except queue.Empty:
+                if future.done():
+                    break
+                status.update(label=f"{step}... {time.time() - start:.0f}s")
+                continue
+            line = f"· {value}" if kind == "note" else f"✓ {DONE.get(value, value)}"
+            st.write(line)
+            lines.append(line)
+            if kind == "done":
+                step = NEXT_STEP.get(value, step)
+        try:
+            result = future.result()
+        except BaseException:
+            status.update(label=f"Stopped after {time.time() - start:.0f}s", state="error")
+            raise
+        label = ("A few details needed" if "__interrupt__" in result
+                 else f"Done in {time.time() - start:.0f}s")
+        status.update(label=label, state="complete", expanded=False)
+    ss().progress = (label, lines)  # Shown again above the results after the page reruns.
+    return result
 
 
 def run_graph(payload, resume: bool = False):
@@ -63,8 +125,13 @@ def run_graph(payload, resume: bool = False):
     config = {"configurable": {"thread_id": ss().thread_id}, "run_id": run_id,
               "run_name": "enrich-listing"}
     arg = Command(resume=payload) if resume else payload
+    first = "Reading your answers" if resume else NEXT_STEP[None]
     try:
-        ss().result = run_async(graph().ainvoke(arg, config))
+        ss().result = run_with_progress(arg, config, first)
+    except TimeoutError:
+        st.error(f"This run took more than {RUN_TIMEOUT_S // 60} minutes and was stopped. "
+                 "Please try again; repeat runs are faster because listings are cached.")
+        st.stop()
     except openai.APIStatusError as e:
         # Streamlit Cloud redacts exception text; the API's own message holds no secrets
         # and says what to fix (credits, key, no available host).
@@ -116,8 +183,7 @@ if submitted:
         st.warning(f"Demo limit: {RUNS_PER_HOUR} runs per hour. Please try again later.")
     else:
         ss().thread_id = str(uuid.uuid4())
-        with st.spinner("Checking category and attributes..."):
-            run_graph({"description": description, "marketplaces": marketplaces})
+        run_graph({"description": description, "marketplaces": marketplaces})
 
 result = ss().get("result")
 if not result:
@@ -130,8 +196,7 @@ if "__interrupt__" in result:
     with st.form("missing"):
         answers = {a: st.text_input(a.replace("_", " ").capitalize()) for a in ask["missing"]}
         if st.form_submit_button("Continue", type="primary"):
-            with st.spinner("Studying top listings and writing yours... (up to 2 minutes)"):
-                run_graph(answers, resume=True)
+            run_graph(answers, resume=True)
             st.rerun()
     st.stop()
 
@@ -147,6 +212,11 @@ for w in result.get("warnings", []):
     st.warning(w)
 
 # --- F8: results ----------------------------------------------------------------------------
+if "progress" in ss():
+    label, lines = ss().progress
+    with st.status(label, state="complete", expanded=False):
+        for line in lines:
+            st.write(line)
 results = result.get("results", {})
 tabs = st.tabs([m.title() if m != "ebay" else "eBay" for m in results])
 for tab, (market, out) in zip(tabs, results.items()):

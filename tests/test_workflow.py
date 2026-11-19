@@ -177,3 +177,18 @@ async def test_rules_failure_warns_and_continues(fake, monkeypatch):
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.mark.anyio
+async def test_streams_progress_notes_for_the_ui(fake):
+    graph, config = workflow.build_graph(), cfg()
+    fake[Attributes] = Attributes(values={"size": "M", "fit": "slim", "fabric": "silk"})
+    notes, steps = [], []
+    async for mode, chunk in graph.astream({"description": "x", "marketplaces": ["ebay"]},
+                                           config, stream_mode=["updates", "custom"]):
+        (notes.append(chunk) if mode == "custom" else steps.extend(chunk))
+    assert steps == ["classify", "extract_attributes", "fetch_listings", "filter_listings",
+                     "generate"]
+    assert "eBay: fetched 3 competitor listings" in notes
+    assert "eBay: kept 2 of 3 listings as relevant" in notes
+    assert "eBay: listing written" in notes

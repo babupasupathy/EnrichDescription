@@ -13,6 +13,7 @@ import logging
 from typing import Any, TypedDict
 
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 from openai import NotFoundError
@@ -25,6 +26,15 @@ from enrich.mcp_client import fetch_listings
 from enrich.schemas import Attributes, Classification, Listing, RelevantIds
 
 MIN_RELEVANT = 5
+NAMES = {"amazon": "Amazon", "ebay": "eBay"}
+
+
+def note(text: str) -> None:
+    """Progress line for the UI (LangGraph "custom" stream); a no-op outside a graph run."""
+    try:
+        get_stream_writer()(text)
+    except Exception:
+        pass
 RULES_FOR_CLASSIFY = 3
 RULES_FOR_GENERATE = 5
 
@@ -156,8 +166,18 @@ async def extract_attributes(state: State) -> dict:
 async def fetch(state: State) -> dict:
     cat = CATEGORIES[state["category"]]
     query = state["subcategory"] or cat.label
-    results = await asyncio.gather(
-        *(fetch_listings(m, cat, query) for m in state["marketplaces"]), return_exceptions=True)
+
+    async def one(m: str) -> list[dict]:
+        try:
+            items = await fetch_listings(m, cat, query)
+        except Exception:
+            note(f"{NAMES[m]}: couldn't fetch competitor listings")
+            raise
+        note(f"{NAMES[m]}: fetched {len(items)} competitor listings")
+        return items
+
+    results = await asyncio.gather(*(one(m) for m in state["marketplaces"]),
+                                   return_exceptions=True)
     competitors, warnings = {}, list(state.get("warnings", []))
     for m, r in zip(state["marketplaces"], results):
         if isinstance(r, Exception):
@@ -187,6 +207,7 @@ async def filter_listings(state: State) -> dict:
         kept = [i for i in items if i["id"] in ids]
         if len(kept) < MIN_RELEVANT:
             warnings.append(f"{m}: only {len(kept)} closely matching listings found.")
+        note(f"{NAMES[m]}: kept {len(kept)} of {len(items)} listings as relevant")
         return kept
 
     markets = list(state["competitors"])
@@ -215,11 +236,13 @@ async def generate_one(state: State, marketplace: str, found: list[rules.Rule]
     sources = [f"{i.get('title', '')} {i.get('description', '')}" for i in items]
     issues = check_listing(marketplace, listing.title, listing.bullets, listing.description, sources)
     if issues:
+        note(f"{NAMES[marketplace]}: fixing {len(issues)} rule warning(s)")
         fix = prompts.FIX.format(issues="\n".join(f"- {i.rule}: {i.detail}" for i in issues))
         listing = await model.ainvoke([("user", prompt), ("assistant", listing.model_dump_json()),
                                        ("user", fix)])
         issues = check_listing(marketplace, listing.title, listing.bullets, listing.description,
                                sources)
+    note(f"{NAMES[marketplace]}: listing written")
     return {"listing": listing.model_dump(),
             "issues": [i.__dict__ for i in issues],
             "rules_used": [{"heading": r.heading, "source": r.source} for r in found],
