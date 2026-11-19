@@ -25,7 +25,9 @@ Sellers rate each listing 1–5 stars; ratings and edits are logged to LangSmith
 ## Repo layout
 
 ```
-streamlit_app.py      UI (input, missing-attribute form, results, star rating)
+streamlit_app.py      Entry point: loads secrets, sidebar pages
+app_pages/            Generate listings (input, missing-attribute form, results, star rating),
+                      PRD, Architecture and Marketplace rules pages
 enrich/               workflow, prompts, schemas, model tiers, rules checks, MCP client
 rules/                marketplace policy summaries in our own words, one file per marketplace (RAG source)
 mcp_servers/          eBay + Amazon MCP servers in one ASGI app (deployed to Cloud Run)

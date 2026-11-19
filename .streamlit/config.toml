@@ -1,0 +1,5 @@
+[theme]
+# Inter for all text, including the listing boxes (they use code blocks for the copy button).
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+codeFont = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap, sans-serif"
+codeFontSize = "0.95rem"
