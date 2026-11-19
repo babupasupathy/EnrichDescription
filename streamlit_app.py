@@ -184,6 +184,10 @@ if submitted:
     else:
         ss().thread_id = str(uuid.uuid4())
         run_graph({"description": description, "marketplaces": marketplaces})
+        # Redraw from the top so the details form always sits in the same slot. Otherwise the
+        # progress box above it shifts the form down, and on the next run Streamlit shows the
+        # old copy faded underneath while the run is working.
+        st.rerun()
 
 result = ss().get("result")
 if not result:
