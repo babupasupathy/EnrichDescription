@@ -64,7 +64,7 @@ The MVP covers Amazon and eBay for two categories. Walmart comes in a later phas
 | Women's dresses | Size, fit, fabric (plus color, length, sleeve and occasion if given) | [Dresses node 1045024](https://www.amazon.com/Dresses/b/ref=sv_sl_fl_1045024?ie=UTF8&node=1045024) | Browse search by category ID |
 | Cell phone cases | Compatible device, material (plus protection level and features if given) | [Cases node 2407760011](https://www.amazon.com/cell-phone-cases-screen-protectors/b/?ie=UTF8&node=2407760011&ref_=sv_e_4) | Browse search by category ID |
 
-Anything outside these two categories is told "not supported yet."
+Anything outside these two categories is told support is coming soon.
 
 ## User flow
 
@@ -79,7 +79,7 @@ The pipeline has eight stages, from input to results. Each stage uses the cheape
 | # | Stage | Model tier | Requirement |
 | --- | --- | --- | --- |
 | F1 | Input | — | The seller enters a raw description (up to 2,000 characters) and chooses one or more marketplaces. |
-| F2 | Policy and category check | Cheap | First checks the description against each chosen marketplace's prohibited and restricted rules (from RAG): weapons, adult content, violence, drugs, counterfeit or replica, recalled or hazardous items. If prohibited, it says "This category is prohibited on \<marketplace\>," cites the rule and drops that marketplace. The other marketplaces continue; the run stops only if every chosen marketplace prohibits it. Then it sorts the item into a supported category and subcategory. If the category isn't supported, it says "\<category\> not supported yet" and stops. |
+| F2 | Policy and category check | Cheap | First checks the description against each chosen marketplace's prohibited and restricted rules (from RAG): weapons, adult content, violence, drugs, counterfeit or replica, recalled or hazardous items. If prohibited, it says "This category is prohibited on \<marketplace\>," cites the rule and drops that marketplace. The other marketplaces continue; the run stops only if every chosen marketplace prohibits it. Then it sorts the item into a supported category and subcategory. If the category isn't supported, it says "Sorry! Support for this category \"\<category\>\" is coming soon" and stops. |
 | F3 | Attribute extraction | Cheap | Pulls out the required attributes for the category. If any are missing, it pauses and asks the seller in one form, then continues. |
 | F4 | Competitor listings (MCP) | — | One MCP server per marketplace returns up to 20 current listings: title, description or bullets, price, rating, review count, sales signal where available, and a sample of reviews. Results are cached for 24 hours per marketplace and category. |
 | F5 | Relevance filter | Mid | Removes listings that don't match the product's subcategory and key attributes (for example, an iPhone 16 case against a Galaxy listing). Keeps at least 5, or warns the seller. |
@@ -171,7 +171,7 @@ The north-star metric is **listings rated 4 or 5 stars**: the share of rated lis
 - **Models:** cheap = Qwen3.6-35B-A3B, mid = MiniMax M3, top = DeepSeek V4.1 Flash, all through OpenRouter.
 - **Prohibited items:** stop only the marketplace that prohibits the item; the others continue.
 - **Eval data:** sellers' final edits are kept as eval data. There's no consent step because this is a demo.
-- **Unsupported message:** `<category> not supported yet`, with no waitlist email.
+- **Unsupported message:** `Sorry! Support for this category "<category>" is coming soon`, with no waitlist email.
 
 ## Milestones
 

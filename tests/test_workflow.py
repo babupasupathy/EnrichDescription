@@ -101,7 +101,7 @@ async def test_unsupported_category_message(fake):
     fake[Classification] = Classification(category="other", category_label="Men's shoes")
     out = await workflow.build_graph().ainvoke(
         {"description": "running shoes", "marketplaces": ["ebay"]}, cfg())
-    assert out["status"] == "unsupported" and out["message"] == "Men's shoes not supported yet"
+    assert out["status"] == "unsupported" and out["message"] == 'Sorry! Support for this category "Men\'s shoes" is coming soon'
 
 
 @pytest.mark.anyio

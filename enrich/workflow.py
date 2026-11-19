@@ -129,7 +129,7 @@ async def classify(state: State) -> dict:
                 "message": "This product is prohibited on every marketplace you chose."}
     if c.category == "other":
         return {"status": "unsupported", "blocked": blocked, "warnings": warnings,
-                "message": f"{c.category_label} not supported yet"}
+                "message": f'Sorry! Support for this category "{c.category_label}" is coming soon'}
     return {"status": "ok", "blocked": blocked, "marketplaces": remaining, "warnings": warnings,
             "category": c.category, "subcategory": c.subcategory}
 
